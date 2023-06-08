@@ -23,6 +23,7 @@
 	import { checkForLinks, type StatusMessageInfo } from '$lib/Generic/GenericFunctions';
 	import NotificationOptions from '$lib/Generic/NotificationOptions.svelte';
 	import { faAlignLeft } from '@fortawesome/free-solid-svg-icons/faAlignLeft';
+	import PredictionMarket from '$lib/Poll/PredictionMarket.svelte';
 
 	let poll: poll,
 		votings: votings[],
@@ -157,21 +158,21 @@
 				{#if phase === 'delegate-voting' || phase === 'voting' || phase === 'end'}
 					<Tab tabs={['You', 'Delegate']} bind:selectedPage />
 				{/if}
-				{#if phase !== "pre-start"}
-				<ProposalsRanked
-					{groupUser}
-					votingStartTime={poll.vote_start_date}
-					pollType={poll.poll_type}
-					tag={poll.tag}
-					bind:phase
-					bind:votings
-					bind:selectedPage
-					bind:abstained
-					bind:proposals
-				/>
+				{#if phase !== 'pre-start'}
+					<ProposalsRanked
+						{groupUser}
+						votingStartTime={poll.vote_start_date}
+						pollType={poll.poll_type}
+						tag={poll.tag}
+						bind:phase
+						bind:votings
+						bind:selectedPage
+						bind:abstained
+						bind:proposals
+					/>
 				{/if}
 				<!-- TODO: Replace this if statement with phases -->
-				{#if phase === "proposals"}
+				{#if phase === 'proposals'}
 					{#if pollType === 1}
 						<!-- Ranked Poll -->
 						<ProposalSubmition bind:abstained />
@@ -180,6 +181,9 @@
 						<ScheduledSubmission bind:abstained />
 					{/if}
 				{/if}
+			{/if}
+			{#if phase === 'prediction'}
+				<PredictionMarket />
 			{/if}
 			<Timeline
 				displayDetails={false}
