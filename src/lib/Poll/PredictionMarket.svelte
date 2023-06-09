@@ -8,7 +8,7 @@
     })
 
     const test = async () => {
-        const { res, json } = await fetchRequest('POST', `group/poll/${$page.params.pollId}/pollpredictions`);
+        const { res, json } = await fetchRequest('POST', `group/poll/${$page.params.pollId}/predictions/list`);
     }
 </script>
 
