@@ -7,6 +7,7 @@
 	import { faCalendarWeek } from '@fortawesome/free-solid-svg-icons/faCalendarWeek';
 	import { faChartBar } from '@fortawesome/free-solid-svg-icons/faChartBar';
 	import { faList } from '@fortawesome/free-solid-svg-icons/faList';
+	import { faMoneyBill } from '@fortawesome/free-solid-svg-icons/faMoneyBill';
 	import Logo from '$lib/assets/Logo.png';
 	import Reforum from '$lib/assets/Reforum.png';
 	import DefaultPFP from '$lib/assets/Default_pfp.png';
@@ -21,11 +22,13 @@
 	let sideHeaderOpen = false,
 		profileImage = DefaultPFP,
 		//TODO: The <HeaderIcon> component should handle default darkMode
-		darkMode: boolean | null = null;
+		darkMode: boolean | null = null,
+		ledgerExists: boolean = false;
 
 	onMount(() => {
 		getProfileImage();
 		darkMode = localStorage.theme === 'dark';
+		checkForLedgerModule();
 	});
 
 	const getProfileImage = async () => {
@@ -33,6 +36,11 @@
 
 		if (res.ok && json.profile_image)
 			profileImage = `${import.meta.env.VITE_API}${json.profile_image}`;
+	};
+
+	const checkForLedgerModule = async () => {
+		const {res, json} = await fetchRequest('GET', 'ledger/accounts');
+		ledgerExists = !!res.ok;
 	};
 </script>
 
@@ -65,7 +73,6 @@
 					href="schedule"
 					color={darkMode ? 'white' : 'black'}
 				/>
-
 				{#if import.meta.env.VITE_MODE === 'DEV'}
 					<HeaderIcon
 						icon={faChartBar}
@@ -80,6 +87,14 @@
 					href="kanban"
 					color={darkMode ? 'white' : 'black'}
 				/>
+				{#if import.meta.env.VITE_MODE === 'DEV'}
+					<HeaderIcon
+						icon={faMoneyBill}
+						text="Account"
+						href="accounts"
+						color={darkMode ? 'white' : 'black'}
+					/>
+				{/if}
 			</nav>
 
 			<div
