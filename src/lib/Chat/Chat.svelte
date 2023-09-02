@@ -134,7 +134,8 @@
 <div class:invisible={!chatOpen} class="bg-white dark:bg-darkobject dark:text-darkmodeText fixed z-40 w-full grid grid-width-fix">
 	<div class="col-start-2 col-end-3 flex justify-between bg-white dark:bg-darkobject p-2">
 		<div class="text-xl font-light text-gray-400">{$_('Chat')}</div>
-		<div class="cursor-pointer w-full h-full" on:click={() => (chatOpen = false)}>
+		<div class="w-full"></div>
+		<div class="cursor-pointer h-full" on:click={() => (chatOpen = false)}>
 			<CrossButton />
 		</div>
 	</div>
