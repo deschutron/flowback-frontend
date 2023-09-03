@@ -211,5 +211,5 @@
 		</form>
 	</div>
 {:else}
-	<div>{("No chat selected")}</div>
+	<div>{$_("No chat selected")}</div>
 {/if}
