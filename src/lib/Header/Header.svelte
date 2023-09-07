@@ -40,11 +40,6 @@
 	};
 
 	const checkForLedgerModule = async () => {
-		const {res, json} = await fetchRequest('GET', 'ledger/accounts');
-		ledgerExists = !!res.ok;
-	};
-
-	const checkForLedgerModule = async () => {
 		const accounts = await accountsStore.get();
 		ledgerExists = accounts.loaded;
 	};
