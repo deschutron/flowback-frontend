@@ -18,6 +18,7 @@
 	import { changeDarkMode } from '$lib/Generic/DarkMode';
 	import Fa from 'svelte-fa/src/fa.svelte';
 	import { faMoon } from '@fortawesome/free-solid-svg-icons/faMoon';
+	import { accountsStore } from '$lib/Account/stores';
 
 	let sideHeaderOpen = false,
 		profileImage = DefaultPFP,
@@ -41,6 +42,11 @@
 	const checkForLedgerModule = async () => {
 		const {res, json} = await fetchRequest('GET', 'ledger/accounts');
 		ledgerExists = !!res.ok;
+	};
+
+	const checkForLedgerModule = async () => {
+		const accounts = await accountsStore.get();
+		ledgerExists = accounts.loaded;
 	};
 </script>
 
@@ -88,12 +94,14 @@
 					color={darkMode ? 'white' : 'black'}
 				/>
 				{#if import.meta.env.VITE_MODE === 'DEV'}
-					<HeaderIcon
-						icon={faMoneyBill}
-						text="Account"
-						href="accounts"
-						color={darkMode ? 'white' : 'black'}
-					/>
+					{#if ledgerExists}
+						<HeaderIcon
+							icon={faMoneyBill}
+							text="Account"
+							href="accounts"
+							color={darkMode ? 'white' : 'black'}
+						/>
+					{/if}
 				{/if}
 			</nav>
 
