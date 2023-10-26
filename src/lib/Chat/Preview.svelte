@@ -1,288 +1,295 @@
 <script lang="ts">
-	import { setTimeStamp, type Direct, type Message, type PreviewMessage } from './interfaces';
-	import { fetchRequest } from '$lib/FetchRequest';
-	import type { Group } from '$lib/Group/interface';
-	import Tab from '$lib/Generic/Tab.svelte';
-	import type { User } from '$lib/User/interfaces';
-	import ProfilePicture from '$lib/Generic/ProfilePicture.svelte';
-	import { onMount } from 'svelte';
-	import TextInput from '$lib/Generic/TextInput.svelte';
-	import { chatPreview as chatLimit } from '../Generic/APILimits.json'
-	
-	let groups: Group[] = [],
-		directs: any[] = [],
+	import type {Group} from "$lib/Group/interface";
+	import type {User} from "$lib/User/interfaces";
+	import {
+		setTimeStamp,
+		type Direct,
+		type Message,
+		type PreviewMessage
+	} from "./interfaces";
+	import {fetchRequest} from "$lib/FetchRequest";
+	import Tab from "$lib/Generic/Tab.svelte";
+	import TextInput from "$lib/Generic/TextInput.svelte";
+	import ProfilePicture from "$lib/Generic/ProfilePicture.svelte";
+	import {onMount} from "svelte";
+	import {
+		chatUserStore,
+		chatUsersStore,
+		chatGroupsStore
+	} from "$lib/Chat/stores";
+
+	let
 		user: User,
-		chatSearch = '';
+		directs: any[] = [],
+		groups: Group[] = [],
+		chatSearch = "";
 
-	export let selectedChat: number | null,
-		// user: User,
-		selectedPage: 'direct' | 'group' = 'direct',
-		previewDirect: PreviewMessage[] = [],
-		previewGroup: PreviewMessage[] = [],
-		notifiedDirect: number[],
-		notifiedGroup: number[];
+	export let
+		selectedPage: "direct"|"group" = "direct",
+		selectedChats: {direct: number|null, group: number|null} = {
+			direct: null, group: null
+		},
+		// previewDirect and previewGroup
+		previewMessageLists: {
+			direct: PreviewMessage[], group: PreviewMessage[]
+		} = {
+			direct: [], group: []
+		},
+		// notifiedDirect and notifiedGroup
+		notificationLists: {direct: number[], group: number[]} = {
+			direct: [], group: []
+		};
 
-	// $: user &&
-	// 	(() => {
-	// 		setUpPreview();
-	// 		getChattable();
-	// 	})();
+	/* trigger any reactivity stuff associated with a variable */
+	const notice = x => x = x;
 
-	onMount(async () => {
-		const { json, res } = await fetchRequest('GET', 'user');
-		user = json;
-		await getChattable();
+	onMount(async ()=>{
+		user = (await chatUserStore.get())[0];
+		await getChatters();
 		await setUpPreview();
-		// sortPreview();
 	});
 
-	const setUpPreview = async () => {
-		previewDirect = await getPreview('direct');
-		previewGroup = await getPreview('group');
-
-		notifiedDirect = findNotifications(previewDirect);
-		notifiedGroup = findNotifications(previewGroup);
+	const getChatters = async ()=>{
+		if (directs.length || groups.length)
+			return;
+		[directs, groups] = await Promise.all([
+			chatUsersStore.get().then(x => x.filter(y => y.id !== user.id)),
+			chatGroupsStore.get()
+		]);
 	};
 
-	const getPreview = async (selectedPage: 'direct' | 'group') => {
-		const { res, json } = await fetchRequest(
-			'GET',
-			`chat/${selectedPage}/preview?order_by=created_at_desc`
+	const setUpPreview = ()=>
+		Promise.all(["direct", "group"].map(page =>
+			fetchPreview(page).then(x => {
+				previewMessageLists[page] = x;
+				notificationLists[page] = notificationsForPreview(x);
+			})
+		));
+
+	const fetchPreview = async (page: "direct"|"group") => {
+		const {res, json} = await fetchRequest("GET",
+			`chat/${page}/preview?order_by=created_at_desc`
+		);
+		if (!res.ok)
+			return;
+		return json.results;
+	};
+
+	const notificationsForPreview = (x: any[]) =>
+		x.filter(msg =>
+			msg.timestamp < msg.created_at
+		).map(msg =>
+			msg.group_id ?
+				msg.group_id :
+			msg.target_id === user.id ?
+				msg.user_id :
+				msg.target_id
 		);
 
-		if (!res.ok) return;
-
-		return json.results;
+	const clickOnChatter = x =>{
+		// clear any existing notification on the newly selected chatter
+		previewMessageLists[selectedPage].filter(
+			selectedPage === "direct" ?
+				msg =>
+					msg.target_id === selectedChats.direct ||
+					msg.user_id === selectedChats.direct
+			: selectedPage === "group" ?
+				msg =>
+					msg.group_id === selectedChats.group
+			: false
+		).forEach(msg =>
+			msg.timestamp = new Date().toString()
+		);
+		previewMessageLists[selectedPage] = previewMessageLists[selectedPage];
+		// switch the chat shown on the right to the newly selected chatter
+		if (selectedChats[selectedPage] !== x.id)
+			selectedChats[selectedPage] = x.id;
+		// update the time stamp
+		setTimeStamp(x.id, selectedPage);
 	};
 
-	const findNotifications = (preview: any[]) => {
-		return preview
-			.filter((message: any) => message.timestamp < message.created_at)
-			.map((message: any) =>
-				message.group_id
-					? message.group_id
-					: message.target_id === user.id
-					? message.user_id
-					: message.target_id
-			);
+	const latestMessageFrom = x => (
+		previewMessageLists[selectedPage].find(
+			selectedPage === "direct" ? msg =>
+				msg.user_id === x.id &&
+				msg.target_id !== user.id ||
+				msg.user_id !== user.id &&
+				msg.target_id === x.id :
+			selectedPage === "group" ? msg =>
+				msg.group_id === x.id :
+			false
+		)?.message || ""
+	);
+
+	$: if (user)
+		notify(user, previewMessageLists.direct);
+	const notify = async (user, previewMessages) => {
+		const shortList = previewMessages.filter(x =>
+			(!x.timestamp || x.timestamp <= x.created_at) &&
+			x.user_id !== user.id && (
+				selectedPage === "group" ||
+				selectedPage === "direct" &&
+				x.targetId !== selectdChats.direct &&
+				x.user_id !== selectedChats.direct
+			)
+		);
+		// if the messager is unknown, update the chatter list
+		if (directs.every(direct => shortList.every(x =>
+			direct.id !== x.user_id && direct.id !== x.target_id
+		)))
+			await getChatters();
+		// now update the notifications list
+		notificationLists.direct = shortList.filter(x =>
+			directs.some(direct =>
+				direct.id === x.user_id || direct.id === x.target_id
+			)
+		).map(x =>
+			x.target_id === user.id ?
+				x.user_id :
+				x.target_id
+		);
 	};
 
-	const getChattable = async () => {
-		if (directs.length + groups.length !== 0) return;
+	$: sortChats();
+	const sortChats = () => {
+		sortChat(directs, previewMessageLists.direct);
+		notice(directs);
 
-		directs = await getPeople();
-		groups = await getGroups();
+		sortChat(groups, previewMessageLists.group);
+		notice(groups);
 	};
 
-	const getGroups = async () => {
-		const { res, json } = await fetchRequest('GET', `group/list?joined=true&limit=${chatLimit}`);
-		return json.results;
-	};
-
-	const getPeople = async () => {
-		const { json, res } = await fetchRequest('GET', `users?limit=${chatLimit}`);
-		return json.results.filter((chatter: any) => chatter.id !== user.id);
-	};
-
-	const clickedChatter = (chatter: any) => {
-		//Gets rid of existing notification when clicked on new chat
-		if (selectedPage === 'direct') {
-			//TODO-user more advanced typescript features to make sure I don't have to use ts-ignore here
-			//@ts-ignore
-			let message = previewDirect?.find(
-				(message) => message.target_id === selectedChat || message.user_id === selectedChat
-			);
-			if (message) {
-				message.timestamp = new Date().toString();
-				previewDirect = previewDirect;
-			}
-		} else if (selectedPage === 'group') {
-			let message = previewGroup.find((message) => message.group_id === selectedChat);
-			if (message) message.timestamp = new Date().toString();
-			previewGroup = previewGroup;
-		}
-
-		//Switches chat shown to the right of the screen to chatter
-		if (selectedChat !== chatter.id) selectedChat = chatter.id;
-
-		setTimeStamp(chatter.id, selectedPage);
-	};
-
-	//Puts chats with notification circle at the top
-	//Puts chats with message between
-	//Puts empty chats at the bottom
-	//SIamand is doing this, to be changed drastically
-	const sort = (chatter: any[], preview: PreviewMessage[], notified: number[]) => {
-		chatter.sort((direct) => {
-			let notifiedMsg = notified.find((notified) => notified === direct.id);
-
-			if (notifiedMsg) return -1;
-
-			var previewMsg = preview?.find(
-				(preview) =>
-					(preview.target_id === direct.id && preview.user_id === user.id) ||
-					(preview.target_id === user.id && preview.user_id === direct.id)
-			);
-			if (previewMsg) return 0;
-			return 1;
+	const sortChat = (chatters: Direct[]|Group[], previews: PreviewMessage[])=>{
+		if (!user)
+			return;
+		const isPreviewOf = (p, z) =>
+			p.target_id === z.id || p.user_id === z.id ?
+				p.group_id !== z.id :
+				p.group_id === z.id;
+		chatters.sort((x, y) => {
+			const px = previews.find(p => isPreviewOf(p, x));
+			const py = previews.find(p => isPreviewOf(p, y));
+			return px && !py ?
+				-1 :
+			!px && !py ?
+				0 :
+			!px && py ?
+				1 :
+			px && py ?
+				new Date(px.created_at) - new Date(py.created_at) :
+				1;
 		});
-		return chatter;
 	};
 
-	const sortPreview = () => {
-		sort(directs, previewDirect, notifiedDirect);
-		directs = directs;
-
-		sort(groups, previewGroup, notifiedGroup);
-		groups = groups;
+	$: updateNotificationsFromGroup();
+	const updateNotificationsFromGroup = () => {
+		if (!user)
+			return;
+		notificationLists.group = previewMessageLists.group
+			.filter(x =>
+				x.timestamp < x.created_at && x.group_id !== selectedChats.group			).map(x =>
+				x.group_id
+			);
 	};
-
-	//Adds notification data to chats where a new message just dropped
-	//TODO: Use advanced typescript features to not have the ignore
-	$: if (user)
-		//@ts-ignore
-		notifiedDirect = previewDirect
-			.filter(
-				(message) =>
-					(message.timestamp <= message.created_at || message.timestamp === null) &&
-					message.user_id !== user.id &&
-					((selectedPage === 'direct' &&
-						message.target_id !== selectedChat &&
-						message.user_id !== selectedChat) ||
-						selectedPage === 'group') &&
-					// 	selectedPage === 'group') &&
-					// This piece of code hinders new accounts from causing a notification but no account present
-					// TODO: Append new user to list if being notified from them
-					directs.find((direct) => direct.id === message.user_id || direct.id === message.target_id)
-			)
-			.map((message) => (message.target_id === user.id ? message.user_id : message.target_id));
-
-	//Sorts the chat based on most recent messages highest up
-	$: {
-		sortChat(directs, previewDirect);
-		directs = directs;
-
-		sortChat(groups, previewGroup);
-		groups = groups;
-	}
-
-	const sortChat = (chatters: Direct[] | Group[], previews: PreviewMessage[]) => {
-		if (user)
-			chatters.sort((chatter1, chatter2) => {
-				const preview1: any = previews.find((preview) =>
-					preview.group_id === chatter1.id
-						? !(preview.target_id === chatter1.id || preview.user_id === chatter1.id)
-						: preview.target_id === chatter1.id || preview.user_id === chatter1.id
-				);
-				const preview2 = previews.find((preview) =>
-					preview.group_id === chatter2.id
-						? !(preview.target_id === chatter2.id || preview.user_id === chatter2.id)
-						: preview.target_id === chatter2.id || preview.user_id === chatter2.id
-				);
-
-				if (!preview1 && !preview2) return 0;
-				else if (!preview1 && preview2) return 1;
-				else if (preview1 && !preview2) return -1;
-				else if (preview1 && preview2)
-					return new Date(preview2.created_at).getTime() - new Date(preview1.created_at).getTime();
-				else return 1;
-			});
-	};
-
-	const getMessage = (chatter: any) => {
-		return (
-			(selectedPage === 'direct' ? previewDirect : previewGroup).find(
-				(message) =>
-					(user.id !== message.target_id &&
-						message.target_id === chatter.id &&
-						selectedPage === 'direct') ||
-					(user.id !== message.user_id &&
-						message.user_id === chatter.id &&
-						selectedPage === 'direct') ||
-					(message.group_id === chatter.id && selectedPage === 'group')
-			)?.message || ''
-		);
-	};
-
-	$: if (user)
-		//@ts-ignore
-		notifiedGroup = previewGroup
-			.filter(
-				(message) => message.timestamp < message.created_at && message.group_id !== selectedChat
-			)
-			.map((message) => message.group_id);
 </script>
 
+<style>
+	.group-message-bg {
+		background: linear-gradient(90deg, #FFFF 32%, #BCFF 76%);
+	}
+	.direct-message-bg {
+		background: linear-gradient(90deg, #EDF 32%, #FFF 76%);
+	}
+	.both-message-bg {
+		background: linear-gradient(90deg, #EDF 32%, #BCFF 76%);
+	}
+</style>
+
 <div
-	class={`col-start-1 col-end-2 row-start-1 row-end-2 dark:bg-darkobject${
-		notifiedDirect.length && notifiedGroup.length
-			? 'both-message-bg'
-			: notifiedDirect.length > 0
-			? 'direct-message-bg'
-			: notifiedGroup.length > 0
-			? 'group-message-bg'
-			: 'bg-white'
-	}`}
+	class={`
+		col-start-1 col-end-2
+		row-start-1 row-end-2
+		${
+			notificationLists.direct.length && notificationLists.group.length ?
+				"both-message-bg" :
+			notificationLists.direct.length ?
+				"direct-message-bg" :
+			notificationLists.group.length ?
+				"group-message-bg" :
+			""
+		}
+	`}
 >
 	<Tab
-		Class={``}
+		Class=""
 		bind:selectedPage
-		tabs={['direct', 'group']}
-		displayNames={['Direct', 'Groups']}
+		tabs={["direct", "group"]}
+		displayNames={["Direct", "Groups"]}
 	/>
 </div>
 
-<ul
-	class="row-start-2 row-end-4 bg-white dark:bg-darkobject flex flex-col sm:h-[30-vh] md:h-[80vh] lg:h-[90vh] overflow-y-scroll"
->
+<ul class="
+	row-start-2 row-end-4
+	flex flex-col
+	sm:h-[30-vh]
+	md:h-[80vh]
+	lg:h-[90vh]
+	overflow-y-scroll
+">
 	<TextInput
-		label={selectedPage === 'direct' ? 'Search users' : 'Search groups'}
+		label={`Search ${selectedPage === "direct" ? "users" : "groups"}`}
 		bind:value={chatSearch}
-		Class="mt-1 ml-2 mb-2 w-7/12"
+		Class="
+			w-full
+			mt-1
+			m1-2
+			mb-2
+		"
 	/>
-	{#each selectedPage === 'direct' ? directs : groups as chatter}
+	{#each selectedPage === "direct" ? directs : groups as chatter}
 		<li
-			class:hidden={selectedPage === 'direct'
-				? !chatter.username.toLowerCase().includes(chatSearch.toLowerCase())
-				: !chatter.name.toLowerCase().includes(chatSearch.toLowerCase())}
-			class="transition transition-color p-3 flex items-center gap-3 hover:bg-gray-200 active:bg-gray-500 cursor-pointer"
-			class:bg-gray-200={selectedChat === chatter.id}
-			on:click={async () => {
-				//TODO: Better fix than this! Fixes doubble clicking to remove notification
-				await setTimeout(() => {
-					clickedChatter(chatter);
-				}, 100);
-				clickedChatter(chatter);
+			class:hidden={
+				!chatter[
+					selectedPage === "direct" ? "username" : "name"
+				].toLowerCase().includes(chatSearch.toLowerCase())
+			}
+			class="
+				transition transition-color
+				p-3
+				flex
+				items-center
+				gap-3
+				hover:bg-gray-200
+				active:bg-gray-500
+				cursor-pointer
+			"
+			class:bg-gray-200={selectedChats[selectedPage] === chatter.id}
+			on:click={async ()=>{
+				clickOnChatter(chatter)
 			}}
+			on:keypress={(console.log.bind("", "chatter keypress"))}
 		>
-			{#if (selectedPage === 'direct' ? notifiedDirect : notifiedGroup).includes(chatter.id)}
+			{#if (notificationLists[selectedPage]).includes(chatter.id)}
 				<div
 					class="p-1 rounded-full"
-					class:bg-purple-400={selectedPage === 'direct'}
-					class:bg-blue-300={selectedPage === 'group'}
+					class:bg-purple-400={selectedPage === "direct"}
+					class:bg-blue-300={selectedPage === "group"}
 				/>
 			{/if}
-			<ProfilePicture user={chatter} />
+			<ProfilePicture user={chatter}/>
 			<div class="flex flex-col">
-				<span class="max-w-[12vw] overflow-x-hidden overflow-ellipsis">{chatter.name || chatter.username}</span>
-				<span class="text-gray-400 text-sm truncate h-[20px] overflow-x-hidden max-w-[10vw]">
-					{getMessage(chatter)}
-				</span>
+				<span class="
+					max-w-[12vw]
+					overflow-x-hidden overflow-ellipsis
+				">{chatter.name || chatter.username}</span>
+				<span class="
+					text-gray-400 text-sm
+					truncate
+					h-[20px]
+					overflow-x-hidden
+					max-w-[10vw]
+				">{latestMessageFrom(chatter)}</span>
 			</div>
 		</li>
 	{/each}
 </ul>
-
-<style>
-	.group-message-bg {
-		background: linear-gradient(90deg, rgba(255, 255, 255, 1) 32%, rgba(180, 210, 255, 1) 76%);
-	}
-
-	.direct-message-bg {
-		background: linear-gradient(90deg, rgb(240, 224, 255) 32%, rgb(255, 255, 255) 76%);
-	}
-
-	.both-message-bg {
-		background: linear-gradient(90deg, rgb(240, 224, 255) 32%, rgba(180, 210, 255, 1) 76%);
-	}
-</style>

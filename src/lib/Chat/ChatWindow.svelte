@@ -1,215 +1,223 @@
 <script lang="ts">
-	// @ts-ignore
-	import { setTimeStamp, type Message, type PreviewMessage } from './interfaces';
-	import Button from '$lib/Generic/Button.svelte';
-	import { fetchRequest } from '$lib/FetchRequest';
-	import type { User } from '$lib/User/interfaces';
-	import { formatDate } from '$lib/Generic/DateFormatter';
-	import { _ } from 'svelte-i18n';
-	import { browser } from '$app/environment';
-	import TextArea from '$lib/Generic/TextArea.svelte';
-	import Fa from 'svelte-fa/src/fa.svelte';
-	import { faPaperPlane } from '@fortawesome/free-solid-svg-icons/faPaperPlane';
-	import { faSmile } from '@fortawesome/free-solid-svg-icons/faSmile';
-	import { statusMessageFormatter } from '$lib/Generic/StatusMessage';
-	import StatusMessage from '$lib/Generic/StatusMessage.svelte';
+	import {_} from "svelte-i18n";
+	import {
+		setTimeStamp,
+		type Message,
+		type PreviewMessage,
+		type User
+	} from "./interfaces";
+	import Button from "$lib/Generic/Button.svelte";
+	import {fetchRequest} from "$lib/FetchRequest";
+	import {formatDate} from "$lib/Generic/DateFormatter";
+	import {browser} from "$app/environment";
+	import TextArea from "$lib/Generic/TextArea.svelte";
+	import Fa from "svelte-fa/src/fa.svelte";
+	import {faPaperPlane} from "@fortawesome/free-solid-svg-icons/faPaperPlane";
+	import {faSmile} from "@fortawesome/free-solid-svg-icons/faSmile";
+	import StatusMessage from "$lib/Generic/StatusMessage.svelte";
+	const {statusMessageFormatter} = StatusMessage;
 
-	// User Action variables
-	let message: string = import.meta.env.VITE_MODE === 'DEV' ? 'a' : '',
-		olderMessages: string,
-		newerMessages: string,
-		showEmoji = false,
+	const sleep = duri => prior =>
+		new Promise(res => setTimeout(res, duri, prior));
+	
+	let
+		message: string = import.meta.env.VITE_MODE === "DEV" ? "a" : "",
+		olderMessages: string = undefined,
+		newerMessages: string = "ninit",
+		showEmoji: bool = false,
 		status: {
-			message: any;
-			success: boolean;
+			message,
+			success: boolean
 		};
 
-	export let selectedChat: number | null,
+	export let
+		selectedPage: "direct"|"group" = "direct",
+		selectedChats: {
+			direct: number|null,
+			group: number|null
+		} = {direct: null, group: null},
 		sendMessageToSocket: (
 			message: string,
 			selectedChat: number,
-			selectedPage: 'direct' | 'group'
+			selectedPage: "direct"|"group"
 		) => Promise<boolean>,
 		user: User,
 		messages: Message[] = [],
-		selectedPage: 'direct' | 'group',
-		previewDirect: PreviewMessage[] = [],
-		previewGroup: PreviewMessage[] = [],
+		previewMessageLists: {
+			direct: PreviewMessage[],
+			group: PreviewMessage[]
+		},
 		isLookingAtOlderMessages: boolean;
 
-	$: (selectedPage || selectedChat) && getRecentMesseges();
+	$: selectedPage && getRecentMessages();
 
-	//When messages are recieved and not looking at history, scroll.
-	$: messages &&
-		(async () => {
+	// When messages are received and not looking at history, scroll.
+	$: messages && (
+		async () => {
 			if (newerMessages) return;
 			if (!browser) return;
+			await sleep(100);
+			const dQs = document.querySelector.bind(document);
+			dQs("#chat-window")?.scroll(0, 100000);
+		}
+	)();
 
-			await setTimeout(() => {
-				const d = document.querySelector('#chat-window');
-				d?.scroll(0, 100000);
-			}, 100);
-		})();
-
-	const getRecentMesseges = async () => {
-		if (!selectedChat) return;
-
-		const { res, json } = await fetchRequest(
-			'GET',
-			`chat/${selectedPage}/${selectedChat}?order_by=created_at_desc&limit=${25}`
+	const getRecentMessages = async () => {
+		if (!selectedChats[selectedPage])
+			return;
+		const {res, json} = await fetchRequest("GET",
+			`chat/${selectedPage}/${selectedChats[selectedPage]}?` +
+			`order_by=created_at_desc&limit=${25}`
 		);
-
-		if (res.ok) messages = json.results.reverse();
-
-		//Temporary fix before json.next issue is fixed
+		if (!res.ok || !json || !json.results) {
+			console.err("chat GET failed.", res, json);
+			messages = [];
+			olderMessages = undefined;
+			newerMessages = undefined;
+			return;
+		}
+		messages = json.results.reverse();
 		olderMessages = json.next;
-		newerMessages = '';
+		newerMessages = null;
 	};
 
-	//Runs when changing chats
-	const postMessage = async () => {
-		if (message.length === 0) return;
-		if (!selectedChat) return;
-		//If only spaces, return
-		if (message.match(/^\s+$/)) return;
+	const showOlderMessages = async () => {
+		const {res, json} = await fetchRequest("GET", olderMessages);
+		if (!res.ok || !json.results)
+			return;
+		newerMessages = json.previous;
+		olderMessages = json.next;
+		messages = json.results.reverse;
+	}
 
-		//When sending, go to most recent messages
-		if (newerMessages) getRecentMesseges();
+	$: {
+		isLookingAtOlderMessages = !!newerMessages;
+	}
 
-		//Updates preview window to display recently typed chat message
-		let previewMessage = (selectedPage === 'direct' ? previewDirect : previewGroup).find(
-			(previewMessage) =>
-				(selectedPage === 'direct' &&
-					((previewMessage.user_id === user.id && previewMessage.target_id === selectedChat) ||
-						(previewMessage.target_id === user.id && previewMessage.user_id === selectedChat))) ||
-				(selectedPage === 'group' && previewMessage.group_id === selectedChat)
+	const updatePreviewWindow = async () => {
+		const previewMessage = previewMessageLists[selectedPage].find(x =>
+			(selectedPage === "direct" &&
+				x.user_id === user.id && x.target_id === selectedChats.direct ||
+				x.target_id === user.id && x.user_id === selectedChats.direct
+			) ||
+			selectedPage === "group" && x.group_id === selectedChats.group
 		);
 		if (previewMessage) {
 			previewMessage.message = message;
 			previewMessage.created_at = new Date().toString();
-		} else {
-			//For brand new chats, create new preview message
-			(selectedPage === 'direct' ? previewDirect : previewGroup).push({
-				created_at: new Date().toString(),
-				message,
-				timestamp: new Date().toString(),
-				username: user.username,
-				user_id: user.id,
-				target_id: selectedPage === 'direct' ? selectedChat : 0,
-				target_username: user.username,
-				profile_image: '',
-				group_id: selectedPage === 'group' ? selectedChat : 0
-			});
+			return;
 		}
+		// for brand new chats, create a new preview message
+		previewMessageLists[selectedPage].push({
+			created_at: new Date().toString(),
+			message,
+			timestamp: new Date().toString(),
+			username: user.username,
+			user_id: user_id,
+			target_id: selectedPage === "direct" ? selectedChats.direct : 0,
+			// why is target_username user.username?
+			target_username: user.username,
+			profile_image: "",
+			group_id: selectedPage === "group" ? selectedChats.group : 0
+		});
+	};
 
-		selectedPage === 'direct' ? (previewDirect = previewDirect) : (previewGroup = previewGroup);
-
-		const didSend = await sendMessageToSocket(message, selectedChat, selectedPage);
-
-		if (!didSend) status = { message: 'Could not send message', success: false };
+	const postMessage = async () => {
+		if (
+			!message.length || !selectedChats[selectedPage] ||
+			// if only spaces, return
+			message.match(/^\s+$/)
+		)
+			return;
+		// when sending, go to most recent messages
+		if (newerMessages)
+			getRecentMessages();
+		updatePreviewWindow();
+		// ring the bell (trigger reactive declarations)
+		previewMessageLists[selectedPage] = previewMessageLists[selectedPage];
+		const didSend = await sendMessageToSocket(
+				message, selectedChat[selectedPage], selectedPage);
+		if (!didSend)
+			status = {message: "Could not send message", success: false};
 		else
 			messages.push({
 				message,
-				user: { username: user.username, id: user.id, profile_image: user.profile_image || '' },
-				created_at: new Date().toString()
+				user: {
+					username: user.username,
+					id: user.id,
+					profile_image: user.profile_image || ""
+				}
 			});
-
 		messages = messages;
-		message = import.meta.env.VITE_MODE === 'DEV' ? message + 'a' : '';
-
-		setTimeStamp(selectedChat, selectedPage);
-	};
-
-	const showOlderMessages = async () => {
-		const { res, json } = await fetchRequest('GET', olderMessages);
-
-		if (!res.ok) return;
-		// nextMessagesAPI = json.next
-		newerMessages = json.previous;
-		olderMessages = json.next;
-
-		messages = json.results.reverse();
-	};
-
-	$: {
-		if (newerMessages) isLookingAtOlderMessages = true;
-		else isLookingAtOlderMessages = false;
+		message = import.meta.env.VITE_MODE === 'DEV' ? message + "a" : "";
+		setTimeStamp(selectedChats[selectedPage], selectedPage);
 	}
 </script>
 
-{#if selectedChat !== null}
-	<ul
-		class="dark:bg-darkobject col-start-2 col-end-3 bg-white h-100% overflow-y-scroll overflow-x-hidden break-all"
-		id="chat-window"
+{#if selectedChats[selectedPage] === null}
+	<div>{$_("No chat selected")}</div>
+{:else}
+	<ul id="chat-window"
+		class="
+			col-start2 col-end-3
+		"
 	>
-		{#if messages.length === 0}
-			<span class="self-center">{'Chat is currently empty, maybe say hello?'}</span>
+		{#if !messages.length}
+			<span class="self-center">{$_(
+				"Chat is currently empty, maybe say hello?"
+			)}</span>
 		{/if}
 		{#if olderMessages}
-			<li class="text-center mt-6 mb-6">
-				<Button action={showOlderMessages}>{$_('Show older messages')}</Button>
-			</li>
+			<li class="text-counter mt- mb-6">
+				<Button action={showOlderMessages}>{
+					$_("Show older messages")
+				}</Button>
 		{/if}
-		<!-- <div class="absolute bottom-0 right-0">{$_("New messages")}</div> -->
 		{#each messages as message}
 			<li class="p-3 hover:bg-gray-200">
 				<span>{message.user?.username || message.username}</span>
-				<span class="text-[14px] text-gray-400 ml-3">{formatDate(message.created_at)}</span>
+				<span class="
+					text-[14px] text-gray-400 ml-3
+				">{
+					formatDate(message.created_at)
+				}</span>
 				<p>{message.message}</p>
 			</li>
 		{/each}
-		{#if newerMessages}
-			<li class="text-center mt-6 mb-6">
-				<Button
-					action={async () => {
-						const { res, json } = await fetchRequest('GET', newerMessages);
-
-						olderMessages = json.next;
-						newerMessages = json.previous;
-
-						messages = json.results.reverse();
-					}}
-					buttonStyle="secondary">{$_('Show earlier messages')}</Button
-				>
-			</li>
-		{/if}
-		<StatusMessage bind:status disableSuccess />
+		<StatusMessage bind:status disableSuccess/>
 	</ul>
-	<!-- <div class:invisible={!showEmoji} class="fixed">
-	</div> -->
-	<div class="dark:bg-darkobject col-start-2 col-end-3 bg-white shadow rounded p-2 w-full">
-		<!-- Here the user writes a message to be sent -->
+
+	<div id="chat-message-write-div" class="
+		bg-white dark:bg-darkobject
+		col-start-2 col-end-3
+		shadow rounded
+		p-2 w-full
+	">
 		<form
 			class="w-full flex gap-2 md:mt-2 lg:mt-5 xl:mt-14 items-center"
 			on:submit|preventDefault={postMessage}
 		>
 			<TextArea
-				autofocus
-				label=""
-				onKeyPress={(e) => {
-					if (e.key === 'Enter' && !e.shiftKey) {
+				autofocus label="" required max={3000} bind:value={message}
+				Class="w-full"
+				onKeyPress={e => {
+					if (e.key === "Enter" && !e.shiftKey) {
 						postMessage();
 						e.preventDefault();
 					}
 				}}
-				required
-				max={3000}
-				bind:value={message}
-				Class="w-full"
 			/>
-
-			{#if import.meta.env.VITE_MODE === 'DEV'}
+			{#if import.meta.env.VITE_MODE === "DEV"}
 				<Button
-					action={() => (showEmoji = !showEmoji)}
-					Class="rounded-full pl-3 pr-3 pt-3 pb-3 h-1/2"><Fa icon={faSmile} /></Button
+					action={() => showEmoji = !showEmoji}
+					Class="rounded-full pl-3 pr-3 pt-3 pb-3 h-1/2"
 				>
+					<Fa icon={faSmile}/>
+				</Button>
 			{/if}
-
-			<Button type="submit" Class="rounded-full pl-3 pr-3 pt-3 pb-3 h-1/2"
-				><Fa icon={faPaperPlane} /></Button
-			>
+			<Button type="submit" Class="rounded-full pl-3 pr-3 pt-3 pb-3 h-1/2">
+				<Fa icon={faPaperPlane}/>
+			</Button>
 		</form>
 	</div>
-{:else}
-	<div>{$_("No chat selected")}</div>
 {/if}
